@@ -1,0 +1,397 @@
+---
+title: "DataScience_Project"
+Author: One Mbochwa
+output: html_notebook
+---
+
+## Introduction
+
+### Data Understanding:
+
+The dataset was from https://archive.ics.uci.edu/ml/machine-learning-databases/adult/
+
+
+**Loading necessary libraries**
+```{r}
+library(ggplot2)
+library(MASS)
+library(dplyr)
+library(stringr)
+library(readr)
+library(e1071)
+library(caret)
+library(DMwR2)
+library(rpart)
+library(randomForest) 
+library(performanceEstimation)
+
+```
+
+
+**Loading data into R**
+```{r}
+adult_dataset <- read.csv(file = "adult.data", header = F)
+head(adult_dataset)
+```
+
+The dataset is missing column names, Therefore I will Set the column names from the information specified in the file old.adult.names using R functions.
+```{r}
+text <- read_lines("old.adult.names")
+
+
+text <- text[64:78]
+text[1:3]
+
+
+nms <- str_split_fixed(text,":",2)[,1]
+nms[1:3]
+
+
+nms <- str_trim(nms)
+nms[1:3]
+
+
+nms <- str_replace_all(nms, "[^[:alnum:]]", "")
+nms[1:3]
+
+
+colnames(adult_dataset) <- c(nms)
+
+
+head(adult_dataset)
+```
+
+**Explore basic information about the dataset**
+
+```{r}
+str(adult_dataset)
+```
+
+The data set contains 15 variables and 32561 cases. 
+There are 6 numerical variables and 9 nominal variables in the data set.
+The target variable is called class and its a binary nominal variable.
+
+
+**The following are the unique values does each variable in the data set**
+```{r}
+sapply(adult_dataset, function(x) n_distinct(x))
+```
+As expected, the class variable has two levels below and above 50K, sex also has two levels male and female. The levels of nominal variables range from 2 levels to 42 levels, 42 levels being the levels of nativecountry.
+
+**check to see if our data has any missing values**
+```{r}
+sum(is.na(adult_dataset))
+```
+
+This above function resulted in zero, which means there are no missing values encoded with NA in the data set. I will first find the value used to encode the missing values if any in the data set.Then replace it with NA to be easily addressed when perfoming peformance estimation and creating models.
+
+
+Trim any spaces in the levels of all the nominal variables. This will make it easy to find the encoded symbol representing the missing values is there is any.
+```{r}
+adult_dataset[sapply(adult_dataset, is.character)] <- lapply(adult_dataset[sapply(adult_dataset, is.character)], stringr::str_trim)
+```
+
+```{r}
+unique(adult_dataset$nativecountry)
+```
+nativecountry has missing values encoded with symbol ? to represent missing values.
+
+```{r}
+unique(adult_dataset$occupation)
+```
+occupation has missing values encoded with symbol ? to represent missing values.
+
+```{r}
+unique(adult_dataset$workclass)
+```
+workclass has missing values encoded with symbol ? to represent missing values.
+
+I will encode the all the ? symbol with NA in the data set.
+
+```{r}
+adult_dataset[adult_dataset == "?"] <- NA
+```
+
+Check if the encoding worked. The NA should show instead of the ? symbol
+
+```{r}
+unique(adult_dataset$workclass)
+```
+
+**check to see if our data has any missing values encoded NA**
+```{r}
+sum(is.na(adult_dataset))
+```
+There are 4203 cases with missing values in the data set.
+
+**The cases registered for each type of class (variable class)?**
+```{r}
+table(adult_dataset['class'])
+```
+There is a large class imbalance.
+
+**Outliers in the data set.**
+```{r}
+boxplot.stats(adult_dataset$age)$out
+```
+Given out dataset, the age outliers are from 79 years old and above
+
+
+### Problem Definition:
+
+The target variable is class.We want to predict whether the adults yearly salary is below or above 50K.I will be tackling classification.The target variable is a binary variable which makes this a classification problem
+
+Fnglmt variable will be dropped off the data set because its not related to the purpose of the experimental data. For the nativecountry variable with 42 levels, it will take a longer time especially if svm model is used because it will do the one hot encoding for every single one of the levels. I will reduce the levels to two, The new levels will have United states of America and other_countries, this will make my model work faster
+
+Performance estimation method with cross validation because I will take 10% of the each class data set of below and above 50K, therefore the data set will be  about 5000 rows. This is because i do not have enough computational power to handle all the 32000 cases. Therefore, I will use the whole new dataset of 5000 cases for the performance estimation.
+
+Due to the class imbalance I will focus my analysis of the performance estimation results of the classification performance metric on precision to ensure the exactness, recall to ensure the completeness, and f1-score to ensure the balance between recall and precision.
+
+
+The following learning models Will be tried in the performance estimation evaluations:
+
+Random forest model, SVM model, classification tree model
+
+I Will you be experimenting with different hyper-parameters with all of the models.
+
+Random forest - hyper-parameter : mtry
+
+SVM model hyper-parameters : cost, gamma
+
+classification tree model hyper-parameters : minsplit
+
+
+## Experimental Setup
+
+### Data Preparation:
+
+I have both categorical and continuous features.
+
+Random forest, classification tree and svm  model will work with both categorical variables and numerical variables.
+
+The outliers for age are from 79 and above, we will filter out the outliers.
+
+```{r}
+adult_dataset <- adult_dataset %>% filter(age <= 79)
+```
+
+
+The model will require some other kind of pre-processing or data transformation to work well with the data.
+
+fnlwgt variable will be dropped of the dataset.
+```{r}
+adult_dataset <- subset(adult_dataset, select = -fnlwgt)
+dim(adult_dataset)
+```
+Transform all the datatype character variables to factor
+```{r}
+adult_dataset[sapply(adult_dataset, is.character)] <- lapply(adult_dataset[sapply(adult_dataset, is.character)], as.factor)
+```
+
+Check the data types of variables in the data set
+```{r}
+str(adult_dataset)
+```
+
+
+For the nativecountry variable with 42 levels, I will reduce the levels two, The new levels will have United states of America and other, this will make my model work faster.
+```{r}
+levels(adult_dataset$nativecountry)
+```
+
+```{r}
+adult_dataset$nativecountry <- as.character(adult_dataset$nativecountry)
+adult_dataset$nativecountry <- ifelse(adult_dataset$nativecountry == "United-States","United-States", "other_countres")
+adult_dataset$nativecountry <- as.factor(adult_dataset$nativecountry)
+```
+
+
+```{r}
+levels(adult_dataset$nativecountry)
+```
+
+**Random Forest, classification tree and SVM model data preparation**
+
+For Random Forest, classification tree and SVM model- I will keep all the numerical and nominal variables to make the model.
+```{r}
+sample_dataset <- adult_dataset
+dim(sample_dataset)
+```
+**I do not have enough computational power, therefore i will take 10% of each class to make the data sample**
+```{r}
+set.seed(123)
+
+belowtarget <- sample_dataset %>% filter(class == "<=50K")
+abovetarget <- sample_dataset %>% filter(class == ">50K")
+
+#create a sample data set with 10% of each data set
+belowtargetsample <- sample(1:nrow(belowtarget), 0.1*nrow(belowtarget))
+abovetargetsample <- sample(1:nrow(abovetarget), 0.1*nrow(abovetarget))
+
+sample1 <- belowtarget[belowtargetsample,]
+sample2 <- abovetarget[abovetargetsample,]
+
+data_sample <- rbind(sample1, sample2)
+head(data_sample)
+table(data_sample$class)
+```
+
+
+## Results
+
+### Data Modelling and Analysis:
+
+Plot the frequency of the values in the target variable, class.
+```{r}
+ggplot(data = data_sample, mapping = aes(x = class)) + geom_bar()
+```
+
+#### Performance Estimation of random forest, SVM, classification tree
+For the below performance estimation:
+For all the models, there will be a pre-processing fo the data by using the pre = knnImp to deal with the missing values in the data set by performing knn imputation of missing values.For random forest I choose ntree = 500 and mtry from 4 to 7. The default value given 14 variables will be 4, and i checked for 4 to 7. I will hyper-parameter tune svm model using cost range of 0.5 to 2 and gamma values of 0.5 and 1. For the classification tree I will hyper-parameter tune it using minsplit ranging from 1 to 4. The performance estimation will give me the best hyper-parameter to for the models of svm, random forest and classification tree.For evalutors, the classification meterics will give the error rate, precision, recall and f1-score.
+```{r}
+res2 <- performanceEstimation(
+  PredTask(class ~., data_sample),
+   c(workflowVariants("standardWF",
+                     pre = "knnImp", 
+                     learner = "randomForest",
+                     # test all combinations of the given values for ntree and mtry
+                     learner.pars = list(ntree = 500, mtry = 4:7), 
+                     # keep 'pre' parameters fixed for all variants
+                     as.is = "pre"), 
+  workflowVariants("standardWF",
+                     pre = "knnImp", 
+                     learner="rpart", 
+                     learner.pars=list(cp = 0, minsplit=1:4), predictor.pars=list(type="class"), 
+                     as.is = "pre"),
+    workflowVariants("standardWF",
+                     pre = "knnImp", 
+                     learner="svm", 
+                     learner.pars=list(cost =0.5:2, gamma = c(0.5,1)), 
+                     as.is = "pre")),
+ EstimationTask(metrics = c("err", "prec", "rec", "F"), 
+                # need to provide positive class so classificationMetrics()
+                # which is the default evaluator can calculate prec, rec, and F
+                evaluator.pars = list(posClass = "<=50K"),
+                method = CV(nReps = 2, nFolds = 5, strat = TRUE)))
+```
+
+##### Exploring the results of Random forest, SVM and Classification tree
+
+**Visualize the results**
+```{r}
+plot(res2)
+```
+We have a total of 16 workflows, four randomForest, four rpart and four svm. All four rpart workflows have relatively similar and overlapping results of the err, prec, rec, and f. Classification tree given by rpart has the lowest recall of averagely about 0.86, f score averagely about 0.88 and highest precision of averagely about 0.90 and error rate averagely about 0.18. All four randomForest workflow have relatively similar and overlapping results of the err, prec, rec, and f . It has the f score of about 0.90 on average, the highest f score being from randomForest.v1 of about 0.91 and the highest precision on average about 0.90. It has the lowest error rate on average about 0.14. Workflows for svm have distinctly different results of err, prec, rec, and F from one another. All svm workflows have the highest recall compared to other workflows of about 0.96. The better performing svm workflow is svm.v2 with f score of 0.89, precision 0.87. 
+
+
+##### **Model Selection**
+
+```{r}
+topPerformers(res2, maxs = c(F, rep(T, 3)))
+```
+Given the class imbalance we will focus on the precision and F-score to evaluate the models.The above results show that randomForest.v1 has the highest f1-score of about 0.905 and randomForest.v2 have the highest precision of about 0.89. I will select randomForest model to be the best performing model given the f1-score and the precision.
+
+
+**Get the best performing workflow of each model**
+
+**For svm model, the best performing workflow is svm.v2**
+```{r}
+winWF2 <- getWorkflow("svm.v2", res2)
+winWF2
+```
+The workflow for the best performing svm model, show that the best hyper-parameter is at cost = 1.5 and gamma = 0.5
+
+**For randomForest model, the best performing workflow is randomForest.v1**
+```{r}
+winWF3 <- getWorkflow("randomForest.v1", res2)
+winWF3
+```
+The results above show that the randomForest.v1 performs best at ntree =500 and mtry = 4
+
+**For classification tree model, the best performing workflow is rpart.v3**
+```{r}
+winWF4 <- getWorkflow("rpart.v3", res2)
+winWF4
+```
+The workflow for the best performing classification model, show that the best hyper-parameter is of minsplit = 3
+
+
+Summary of the best performing model based on the precision and f1-score
+```{r}
+summary(res2$data_sample.class$randomForest.v1)
+```
+The results above shows the average precision of the randomForest.v1 of ntree = 500 and mtry = 4 to be about 0.89 and f score of about 0.90.
+
+
+##### **Checking the statistical significance results**
+I will use randomForest.v1 to be the baseline for the statistical significance comparison to test if the results could have occurred by chance.
+```{r}
+pres2 <- pairedComparisons(res2, maxs = c(F, rep(T, 3)), baseline = "randomForest.v1")
+pres2$F$WilcoxonSignedRank.test
+```
+By choosing the randomForest.v1 to be the baseline, I will be comparing every model against it. The hypothesis of randomforest model being the best will be rejected if the p-value is less than 0.01 or 99% confidence. Given the results of p-value above I can 99% confidence say the randomForest model and randomforest.v1 workflow is the best performing among others since all the p-values are above 99%. In conclusion the best model is random forest.
+
+Which ones are significant at some level
+```{r}
+p <- pres2
+signifDiffs(p, p.limit=0.01)$F$WilcoxonSignedRank.test
+```
+The above results conclude that I am 99% confident about these models shown above. 
+
+
+
+#### **Random Forest model**
+
+I will build a model using the best performing model 
+
+```{r}
+summary(data_sample)
+```
+The summary of the data_sample dataset of the adults dataset, show that they are 189 NAs for occupation variable, 53 NAs for nativecountry, and 189 NAs for workclass.
+
+I will deal with the missing values before building a model.
+```{r}
+data_sample <- knnImp(data_sample)
+```
+
+Run summary to check for missing values (NAs)
+```{r}
+summary(data_sample)
+```
+As expected, all the missing values were imputated, there are no more missing values in the dataset.
+
+
+**Build a random forest model using using the best hyper-parameters discovered when performing the performance estimation.**
+```{r}
+library(randomForest)
+tree_model <- randomForest(class ~ ., data = data_sample, ntree=500, mtry = 4, importance = TRUE,proximity = TRUE)
+tree_model
+plot(tree_model)
+```
+**Use the model to evaluate the important features in the data set**
+The higher the value of the mean decrease gini or mean decrease accuracy, the higher the importance of the variable in model. 
+
+```{r}
+importance(tree_model)
+varImpPlot(tree_model)
+```
+
+From the results above, on the mean decrease gini plot, I will conclude that the most important variable is the age followed by relationship then capitalgain and the unimportant variables in the model is the nativecountry followed by sex then race. 
+
+
+
+## Conclusion
+
+Given the adult_dataset with 15 variables and about 32000 cases, First I transformed the data. The dataset had 7 numerical variables and 7 nominal variables.Searched the data set for the symbol used to endcode missing values, which was ? then replaced it with NA. Examined all the variables and  discovered variables such as nativecountry had 42 levels which means it will be huge computational cost especially for svm trying to encode each level, therefore I reduced the levels to two namely other_countries and United states. Variable fnglmt was dropped off the data set because it did not align with the experimental goal. The target variable was the class variable which was a binary nominal variable, therefore a classification problem. 
+
+Decided to test the data set using three model namely random forest, classification tree, and svm. Due to lack of computational power, I selected 10% of each class level then combine it to make the data_sample used in the performance estimation. In the performance estimation I used cross validation with 2 nreps and 5 nfolds. Within the performance estimation function I used the knnImp pre-processing function to deal with missing data in the dataset, therefore the missing data were addressed inside the performance estimation method. Decided to perform model hyper-parameter tuning within the performance estimation, for the svm I used cost range from 0.5 to 2 and gamma used 0.5 and 1 and for classification tree I used minsplit range from 1 to 4 and lastly for random forest I used mtry from 4 to 7. The best hyper-parameter were listed at the best workflows results of each model.
+
+Due to the class imbalance to analyze the performance estimation results we will look at the precision and f score results of the workflows. The results show that randomForest.v1 has the highest f1-score of about 0.905 and randomForest.v2 have the highest precision of about 0.89. I will select randomForest model to be the best performing model given the f1-score and the precision. Classification tree is worst performing model among svm and random forest tree model when evaluating using the precision and f score. To compare the significance of the results I used randomForest.v1 to be the baseline for the statistical significance comparison to test if the results could have occurred by chance. To test if the hypothesis that randomforest.v1 workflow is best, I will be rejecting p-values less than 0.01 or 99%. If all the p-values of the different workflows is 99% and above I can 99% confidence say that random Forest model is the best model given our adult data set and yes, there the p-values were all 99% and above. My recommendation will be that given adult dataset, random forest is the best model compared to svm and classification tree. For the random forest model, the best hyper-parameter selected will be the mtry = 4.
+
+Using the best selected model random forest to build a model and to evaluate the importance of variables in the model. First I addressed the missing values in the data set, by using the knnImp function. Then built the model using the best hyper-parameters listed in the workflows of the performance estimation results. Used the importance function and plotted the importance of variables, based of the results on the mean decrease gini, it can be concluded that the most important variable is the age and the most unimportant variable is the nativecountry.
+
+## References
+
+Oliveira Mariana, "Lecture 20: Demo - Performance Estimation and Model Selection with performanceEstimation", Login - Dalhousie University. [Online]. Available: https://dal.brightspace.com/d2l/le/content/230452/viewContent/3337627/View. [Accessed: 03-Dec-2022]. 
+
